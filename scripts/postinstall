@@ -43,7 +43,7 @@ trap 'exit 1' HUP INT TERM
 
 /bin/mkdir "$mount_point"
 /usr/bin/curl --fail --location --silent --show-error --retry 3 \
-    --connect-timeout 30 --max-time 900 --proto '=https' --tlsv1.2 \
+    --connect-timeout 30 --max-time 480 --proto '=https' --tlsv1.2 \
     "$download_url" --output "$task_dir/chatgpt.dmg"
 /usr/bin/hdiutil attach "$task_dir/chatgpt.dmg" -readonly -nobrowse \
     -mountpoint "$mount_point" -quiet
