@@ -1,0 +1,57 @@
+#!/bin/sh
+set -eu
+
+# Fetch the official app at install time; this package contains no OpenAI binary.
+app_path='/Applications/ChatGPT.app'
+bundle_id='com.openai.codex'
+team_id='2DC432GLL2'
+download_url='https://persistent.oaistatic.com/codex-app-prod/Codex.dmg'
+
+verify_app() {
+    candidate="$1"
+    /usr/bin/codesign --verify --deep --strict "$candidate"
+    actual_bundle=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$candidate/Contents/Info.plist")
+    actual_team=$(/usr/bin/codesign -dv --verbose=2 "$candidate" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p')
+    [ "$actual_bundle" = "$bundle_id" ] && [ "$actual_team" = "$team_id" ]
+}
+
+if [ -e "$app_path" ]; then
+    if verify_app "$app_path"; then
+        echo 'Official ChatGPT is already installed; leaving it in place.'
+        exit 0
+    fi
+    echo 'Existing ChatGPT failed identity verification; no files were changed.' >&2
+    exit 1
+fi
+
+case "$(/usr/bin/uname -m)" in
+    arm64) ;;
+    *) echo 'This package supports Apple silicon Macs only.' >&2; exit 1 ;;
+esac
+
+task_dir=$(/usr/bin/mktemp -d /private/tmp/bluelife-chatgpt.XXXXXX)
+mount_point="$task_dir/mount"
+mounted=0
+cleanup() {
+    if [ "$mounted" = 1 ]; then
+        /usr/bin/hdiutil detach "$mount_point" -quiet || true
+    fi
+    /bin/rm -rf "$task_dir"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
+/bin/mkdir "$mount_point"
+/usr/bin/curl --fail --location --silent --show-error --retry 3 \
+    --connect-timeout 30 --max-time 900 --proto '=https' --tlsv1.2 \
+    "$download_url" --output "$task_dir/chatgpt.dmg"
+/usr/bin/hdiutil attach "$task_dir/chatgpt.dmg" -readonly -nobrowse \
+    -mountpoint "$mount_point" -quiet
+mounted=1
+source_app="$mount_point/ChatGPT.app"
+verify_app "$source_app"
+/usr/bin/ditto "$source_app" "$app_path"
+/usr/sbin/chown -R root:wheel "$app_path"
+verify_app "$app_path"
+echo 'ChatGPT installed. Employee sign-in and macOS permission prompts remain interactive.'
+exit 0
